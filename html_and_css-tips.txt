@@ -1,0 +1,26 @@
+・Bootstrap等を使わずに生のCSSを書く場合、まずnormalize.cssを設定して
+  html {
+    font-size: 62.5%;
+  }
+
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+  と記述すると楽
+  さらにbodyにtext-align: center;を設定すれば中央揃えにできる
+
+・文字列を括るのは基本ダブルクォート(")で、やむを得ない場合シングル(')
+
+・iphoneでinput要素が思うように反映されてなかったら
+  input {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  で何とかなる
+
+・font-sizeは%で指定した方が上手くいく気がする
+
+・backgroundに画像を指定して、それをさらに色を指定して透過させたい場合は
+    background-color:rgb(0 68 29 / 80%);
+    background-blend-mode: multiply;
+  と記述すれば出来る

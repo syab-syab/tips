@@ -1,0 +1,209 @@
+サーバー(herokuなど)上にDockerコンテナを起動させてアプリケーションを公開する
+※これに基づく → https://www.youtube.com/watch?v=uQf9968RWWo&ab_channel=%E3%81%A0%E3%82%8C%E3%81%A7%E3%82%82%E3%82%A8%E3%83%B3%E3%82%B8%E3%83%8B%E3%82%A2%2F%E5%B1%B1%E6%B5%A6%E6%B8%85%E9%80%8F
+------------------------------------------------------------------------------
+全体の流れ
+1. 事前準備
+2. Herokuにログイン
+3. herokuアプリを作成
+4. データベースを追加・設定
+5. Dockerfileを本番環境用に修正
+6. Dockerイメージをビルド・リリース
+7. 機能追加
+------------------------------------------------------------------------------
+1. 事前準備
+
+   githubに登録
+   ↓
+   githubのユーザー名とメールアドレスをgitに登録(git config --grobal user.name "ユーザー名" && git config --global user.email メールアドレス)
+   ※ git config --global merge.ff falseでマージの際にファストフォワードが起きないように設定できる
+   ※ git config --global pull.rebase mergesでプルの時に常にリベースする設定ができる
+   ↓
+   git config --list で設定した内容を間違いがないか確認
+   ↓
+   herokuに登録
+   ↓
+   herokuの(多分)自分のアカウントアイコンをクリックしてaccount settingsをクリック
+   ↓
+   Billingをクリックして、クレカの登録をする
+   ↓
+   「heroku cli」でググって「コマンドラインHerokuCLI - Heroku Dev Center」のリンクをクリック
+   ↓
+   各OS用のコマンドラインをインストールする
+-----------------------------------------------------------------------------
+2. Herokuにログイン
+
+   ターミナルで heroku login と入力してログイン(自動でページ遷移する？)
+   ↓
+   heroku container registry(dockerのイメージ置き場)にログインする
+   ターミナルで heroku container:login と入力(Login Succeededと出たら成功)
+-----------------------------------------------------------------------------
+3. herokuアプリを作成
+
+   heroku create アプリ名 と入力(アプリ名は重複できない)
+-----------------------------------------------------------------------------
+4. データベースを追加・設定(rails・mysqlの場合)
+
+   3. で作ったアプリにアドオンという形でデータベースを追加する
+   ターミナルでheroku addons:create clear:ignite -a アプリ名 と入力(igniteは無料プラン)
+   ※こんな感じ → heroku addons:create cleardb:<プラン名> --app <アプリ名>
+   ↓
+   データベースの接続先情報を環境変数(ローカル・本番で値を変える仕組み)にして渡すことで
+   セキュリティを保つ(github上に上げるソースコードに接続先の情報を載せなくて済む)
+   railsアプリのconfigディレクトリにあるdatabase.ymlのproduction:から先を
+   production:
+      <<: *default
+      database: <%= ENV['APP_DATABASE'] %>
+      username: <%= ENV['APP_DATABASE_USERNAME'] %>
+      password: <%= ENV['APP_DATABASE_PASSWORD'] %>
+      host: <%= ENV['APP_DATABASE_HOST'] %>
+   と修正する
+   こうすることでherokuに環境変数を渡せば動いてくれるらしい
+   ↓
+   データベースの接続先情報は、ターミナルに
+   heroku config -a アプリ名
+   と入力することで確認することができる
+   CLEARDB_DATABASE_URL: mysql://ユーザー名:パスワード@ホスト名/データベース名
+   という感じで出力される
+   ↓
+   出力された情報を元に環境変数を設定していく
+   heroku config:add APP_DATABASE='データベース名' -a アプリ名
+   heroku config:add APP_DATABASE_USERNAME='ユーザー名' -a アプリ名
+   heroku config:add APP_DATABASE_PASSWORD='パスワード' -a アプリ名
+   heroku config:add APP_DATABASE_HOST='ホスト名' -a アプリ名
+   以上の内容をターミナルに入力する
+   ↓
+   heroku config -a アプリ名 で環境変数が設定できたかを確認する
+-----------------------------------------------------------------------------
+5. Dockerfileを本番環境用に修正
+
+   start.shというファイルを作成する(一番上のディレクトリに作成)
+   ↓
+   Dockerfileに
+   ENV 環境変数(ex. RAILS_ENV)=production
+   と付け加える
+   ↓
+   さらにDockerfileの一番下に
+   COPY start.sh /start.sh .... ローカルのstart.shをDocker上のルートディレクトリにコピー
+   RUN chmod 744 /start.sh .... 上でコピーしたstart.shに実行権限を持たせる(chmodはchange mode)
+   CMD ["sh", "/start.sh"] .... Dockerfileを起動させるときに実行するコマンド
+   を追加する
+   ↓
+   start.shファイルに
+   #!/bin/sh
+   if [ "${環境変数名(ex. RAILS_ENV)}" = "production" ] .... 本番環境時のみ実行
+   then
+      bundle exec rails assets:precompile .... railsの場合この処理が必要
+   fi
+   サーバー起動(ex. bundle exec rails s -p ${PORT:-3000} -b 0.0.0.0)
+   と記述
+   ※${PORT:-3000}は環境変数PORTに値が入っていたらそれを使用して、
+   　無かったら3000番ポートを使うという意味
+     0.0.0.0と指定してどのIPアドレスからでもアクセスできるという意味？
+   ※環境による条件分岐をしたいときはDockerfileに書かずにstart.shファイルに記述
+   　Dockerfileで条件分岐を書くのが面倒だから
+   　ただし、Dockerfile.developmentやDockerfile.productionという感じで分けるのも有り
+   ↓
+   ターミナルに
+   heroku config:add RAILS_SERVE_STATIC_FILES='true' -a アプリ名
+   と入力
+   ※RAILS_SERVE_STATIC_FILES='true'はrails assets:precompileを本番で起動させるための記述
+   ↓
+   https://tools.heroku.support/limits/boot_timeout にを開く
+   Which application?のセレクトボックスでアプリ名を選択
+   Boot Timeoutで秒数(ex. 120秒)を設定して
+   Change Boot Timeoutボタンをクリックして、ポートのバインドの秒数を伸ばす？
+   ↓
+   ターミナルに
+   docker-compose down
+   と打ち込んで、ローカルサーバーを削除する
+   ローカルでwebサーバーが起動していると、
+   herokuで上手く起動しない恐れがある
+   ※railsの場合 tmp/pids/server.pidファイルを削除しておく
+   　コマンドは rm 任意のディレクトリ名(src)/tmp/pids/server.pid
+---------------------------------------------------------------------------------------------
+6. Dockerイメージをビルド・リリース
+
+   ターミナルに
+   heroku container:push web(これは引数?) -a アプリ名
+   とコマンドを打ち込む
+   コンテナレジストリにビルドしたイメージをプッシュする
+   ※pushする前に docker-compose down でローカルサーバーを落としておく
+   　念のため rm 任意のディレクトリ名(src)/tmp/pids/server.pid も実行
+   ↓
+   コンテナレジストリに上げたイメージからherokuの方に
+   dockerコンテナをリリースする
+   ターミナルに
+   heroku container:release web -a アプリ名
+   と打ち込む
+   ↓
+   (railsの場合)データベースのテーブルを更新するとき
+   マイグレーション(railsにおいてデータベースのテーブルを更新する仕組み)を行う
+   ターミナルに
+   heroku run bundle exec rake db:migrate 環境変数(ex. RAILS_ENV)=production -a アプリ名
+   (heroku上でコマンドを実行したいときは heroku run のコマンドを使う)
+   とコマンドを打ち込む
+   ※heroku側のイメージ(?)が更新されてないとエラーが出るかもしれないので
+   　エラーが出たらプッシュとリリースをやる
+   ↓
+   ターミナルに
+   heroku open -a アプリ名
+   と打ち込んでherokuのアプリを開く
+   The page you were looking for doesn't exist.が表示されたら成功
+   ※まだページを作っていない時に表示される
+-----------------------------------------------------------------------------------
+7. 機能追加(railsの場合)
+
+   ターミナルに
+   docker-conpose up -d 
+   でコンテナを立ち上げる
+   ↓
+   railsコントローラーを作成
+   ターミナルに
+   docker-compose exec web bundle exec rails g controller コントローラー名(ex. users)
+   と打ち込む 
+   ↓
+   config/routes.rbを開いて
+   Rails.application.routes.draw do
+      get '/', to: 'users#index'
+   end
+   と編集
+   ※GETリクエストのトップページに来たら、
+   　usersコントローラーのindexアクションを起動
+   ↓
+   app/controllers/任意の名前(ex. users)_controller.rbを
+   class UsersController < ApplicationController
+      def index
+      end
+   end
+   と編集
+   ↓
+   app/views/作成したコントローラーと同じ名前(ex. users)ディレクトリの下に
+   index.html.erbを作成して、適当に
+   <h1>Hello world!</h1>
+   とか入力する
+   ↓
+   ローカルサーバーで
+   トップページにindex.html.erbの内容が表示されることを確認
+   ↓
+   変更をherokuに反映する
+   docker-compse downでローカルサーバーを落とす
+   念のため rm 任意のディレクトリ名(src)/tmp/pids/server.pid も実行
+   ↓
+   heroku container:push web -a アプリ名でイメージをプッシュして
+   heroku container:release web -a アプリ名でリリースする
+   ↓
+   heroku open -a アプリ名で変更が反映されているか確認する
+   ↓
+   クリア！
+-----------------------------------------------------------------------------------
+※herokuでデバッグしたいとき
+
+   ターミナルに
+   heroku config:add 環境変数(ex. RAILS_LOG_TO_STDOUT)='true' -a アプリ名
+   と入力
+   デフォだとherokuで表示されるログの量が少ないので
+   多く表示されるように設定しておく
+   ↓
+   その後、ターミナルに
+   heroku logs -t -a アプリ名
+   でherokuのログを見ることができる

@@ -1,0 +1,53 @@
+Docker Compose について
+-----------------------------------------------------------------------------------
+概要
+docker-compose.ymlファイルに記述することで、複数のコンテナを一括で管理できる
+コマンドを１つ実行するだけで、設定内容に基づいたアプリケーションサービスの生成・起動を行う。
+
+--------------------------------------------------------------------------
+コマンド
+
+docker-compose build .... イメージの作成
+
+docker-compose up .... コンテナの作成と起動(オプションで「-d」を付けるとバックグラウンドで起動できる)
+
+docker-compose down .... コンテナを停止・削除
+※ docker-compose downの後でdocker system prune -a やれば全部消える
+
+docker-compose ps .... コンテナの一覧を表示
+
+docker-compose logs .... ログの表示
+
+docker-compose run [サービス] [コマンド] .... コンテナを作成して、引数で指定したサービスのコンテナ内でコマンドを実行
+
+docker-compose exec [サービス] [コマンド] .... 起動中のコンテナに対してコマンド実行
+
+-------------------------------------------------------------------------
+docker-compose.ymlの書き方
+
+version .... docker-composeで使用するバージョン。バージョンによって、ComposeFileの書き方が異なるらしい
+
+services .... アプリケーションを動かすための各要素。ネストして書かれたものが各サービス(下の例だとdbとweb)
+
+各サービスにおける記述
+例)
+version: '3'
+services:
+  db:
+    image: mysql:8.0 .... イメージの選択
+    command: --default-authentication-plugin=mysql_native_password .... デフォルトで起動させたいコマンド
+    volumes: .... 「:」より左がローカル(./src/db/mysql_data)で右がDocker上(/var/lib/mysql)のディレクトリ
+      - ./src/db/mysql_data:/var/lib/mysql .... ローカルからDocker上のディレクトリに変更を共有(同期)させる
+    environment: .... 環境変数の設定
+      MYSQL_ROOT_PASSWORD: password 
+  web:
+    build: .  .... Dockerfileのあるパスを指定する。同じディレクトリにあるなら「.(ドット)」と記述する
+    command: bundle exec rails s -p 3000 -b '0.0.0.0'
+    volumes:
+      - ./src:/app
+    ports: .... ポートの公開(ローカルサーバーのアドレス?)「:」から左がホストで右がコンテナ
+      - "3000:3000"
+    environment:
+      RAILS_ENV: development
+    depends_on: .... 依存関係。サービス名(このケースならdb)を記載することでIPアドレスを直接書かずに接続できる
+      - db

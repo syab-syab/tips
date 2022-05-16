@@ -1,0 +1,469 @@
+DockerでCI/CDを構築
+※これに基づく → https://www.youtube.com/watch?v=bmXoupfX_r0&ab_channel=%E3%81%A0%E3%82%8C%E3%81%A7%E3%82%82%E3%82%A8%E3%83%B3%E3%82%B8%E3%83%8B%E3%82%A2%2F%E5%B1%B1%E6%B5%A6%E6%B8%85%E9%80%8F
+※ソースコードを変更したら自動的にデプロイされるようにする
+CI=継続的インテグレーション(ソースコードを変更してGitに上げる度にビルド・テストを自動実行して、コードの品質を一定に保つ)
+CD=継続的デリバリー(テストをパスした変更に対してレビューをして、レビューもパスしてマージされたらデプロイを自動にする)
+circleci=CI/CDを構築するためのサービス
+-----------------------------------------------------------------------------------
+全体の流れ
+1. GitHubの設定
+2. CIの構築
+3. CDの構築
+----------------------------------------------------------------------------------
+1. GitHubの設定
+  1) GitHub上でリポジトリ作成
+  2) Gitでコードを管理
+  3）.gitignoreを追加
+     ※バージョン管理する必要の無いファイルを外しておくのがgitignore(ex. データベースの接続先などの機密情報、ライブラリの変更履歴?)
+  4) コミット、プッシュ
+
+  1) GitHub上でリポジトリ作成
+     GitHubのヘッダーにある自分のユーザーアイコンにカーソルを合わせてyour repositoriesをクリックして開く
+     ↓
+     Newボタンをクリック
+     ↓
+     Create a new repositoryページを開いて
+     Repository nameを入力(アプリと同じ名前が無難)
+     Create repositoryボタンをクリック
+     ↓
+     リポジトリ完成
+
+  2) Gitでコードを管理
+     ターミナルで作成したアプリのルート(一番上の)ディレクトリ上で
+     git init
+     を入力
+     ※git init は一度のみ
+
+  3）.gitignoreを追加(railsのケース)
+     ターミナルで
+     mv 任意のディレクトリ名(ex. src)/.gitignore .
+     mv 任意のディレクトリ名(ex. src)/.gitattributes .
+     と入力して、両ファイルをルートディレクトリに移動
+     ↓
+     ターミナルで
+     rm -rf 任意のディレクトリ名(ex. src)/.git
+     と入力して、.gitディレクトリ以下を削除
+     ※-rfで指定したディレクトリ以下すべてのファイルを削除
+     ※.gitがあるとエラーが起きるらしい
+     ↓
+     .gitignoreを開いて
+     全ての記述の前に
+     任意のディレクトリ名(ex. src)/
+     と付け加える
+     ex)
+        src/.bundle
+
+        src/log/*
+        src/tmp/*
+        !src/log/.keep
+        !src/tmp/.keep
+
+        src/tmp/pids/*
+        !src/tmp/pids/
+        !src/tmp/pids/.keep
+
+        src/storage/*
+        !src/storage/.keep
+
+        src/public/assets
+        src/.byebug_history
+
+        src/config/master.key
+
+        src/public/packs
+        src/public/packs-test
+        src/node_modules
+        src/yarn-error.log
+        src/yarn-debug.log*
+        src/.yarn-integrity
+
+        src/db/mysql_data
+     ↓
+     さらに.gitignoreに
+     ディレクトリ名(ex. src)/db/mysql_data
+     と書き加える
+     ※docker-compose.ymlのサービスのdbでvolumesで指定してあるため、外す(管理する必要ない)
+
+  4) コミット、プッシュ
+     ターミナルに
+     git add .
+     と入力して、すべてのファイルを一括でステージングに追加
+     ↓
+     続いて
+     git commit -, "first commit"
+     と入力して、コミット
+     ↓
+     git branch -m main
+     とコマンドを打って、メインブランチを作成して切り替える
+     ↓
+     git remote add origin [リポジトリのURL]
+     ↓
+     最後に
+     git push -u origin main
+     でプッシュ
+-----------------------------------------------------------------------------------------------
+2. CIの構築
+	 ※GitHubにプッシュされたタイミングで毎回テストが走るようにする
+   1) テストコードを記載
+   2) CircleCIに登録
+   3) プロジェクトの登録
+   4) configを設定
+   5) 環境変数を設定
+   6) GitHubにプッシュ
+   7) テストを修正
+
+   1) テストコードを記載
+      ディレクトリ名(ex. src)/test/controllers/作成したコントローラー名(ex. users)_controller_test.rbを開いて
+      require "test_helper"
+
+      class UsersControllerTest < ActionDispatch::IntegrationTest
+         test "the truth" do
+            assert false
+         end
+      end
+      と編集する
+      ※assert true から assert false にしてテストに落ちるようにする
+      ↓
+      docker-compose up -d でDockerのコンテナを起動
+      ↓
+      docker-compose exec web bundle exec rake test でテスト実行
+      ↓
+      テスト失敗(エラーではない)
+
+   2) CircleCIに登録
+      https://circleci.com/ja/ を開く
+      ↓
+      ヘッダーの登録ボタンをクリックする
+      ↓
+      GitHubでログイン(登録)を選択(こうすることでGitHubと連携する)
+
+   3) プロジェクトの登録
+      CircleCIのマイページ(多分)Projectsページで対象のリポジトリ名のSet up project をクリック
+      ↓
+      Add Configをクリック
+      ↓
+      色々ポップアップが出てくるから、start buildingボタンをクリック
+
+   4) configを設定
+      ルートディレクトリ直下(一番上のディレクトリ)に
+      .circleci/config.ymlを作成する
+      ↓
+      作成したファイルに
+				version: 2.1  .... バージョンの宣言
+				orbs:		.... のちに定義するjobsの機能をシェアする(？)
+					ruby: circleci/ruby@1.1.2
+
+				jobs:		.... 多分docker-compose.ymlのservicesに近い？
+					build:		.... 各サービス(これはbuild)
+						docker:
+							- image: circleci/ruby:2.7		.... CircleCIでbuildを動かすときのイメージの指定
+						working_directory: ~/任意のアプリ名(リポジトリ名と同じ)/src		.... 作業するディレクトリの指定
+						steps:		.... 実際に行うjobsの中身
+							- checkout:		.... pathに指定したディレクトリにチェックアウトする
+								path: ~/任意のアプリ名(リポジトリ名と同じ)
+							- ruby/install-deps		.... railsのbundle install 等を実行してくれるコマンド
+
+					test:		.... 各サービス(これはtest)
+						docker:		.... CircleCIの実行環境
+							- image: circleci/ruby:2.7
+							- image: circleci/mysql:5.5
+								environment:		.... データベース用の環境変数の設定。database.ymlを参照して各環境変数を設定
+									MYSQL_ROOT_PASSWORD: password
+									MYSQL_DATABASE: app_test
+									MYSQL_USER: root
+						environment:		.... test全体の環境変数の設定
+							BUNDLE_JOBS: "3"
+							BUNDLE_RETRY: "3"
+							APP_DATABASE_HOST: "127.0.0.1"		.... これだけ変更(127.0.0.1は自分のパソコン)
+							RAILS_ENV: test
+						working_directory: ~/任意のアプリ名(リポジトリ名と同じ)/src
+						steps:		.... 実行するjobを定義する
+							- checkout:
+									path: ~/任意のアプリ名(リポジトリ名と同じ)
+							- ruby/install-deps
+							- run:
+									name: Database setup
+									command: bundle exec rails db:migrate
+							- run:
+									name: test
+									command: bundle exec rake test
+
+				workflows:		.... jobを定義してどの順番で実行していくかを決める
+					version: 2
+					build_and_test:
+						jobs:
+							- build
+							- test:
+									requires:
+										- build
+
+			と書き込む
+			↓
+			任意のディレクトリ名(ex. src)/config/database.ymlの
+			test:
+				<<: *default
+				database: app_test
+			の箇所だけ
+			test:
+				<<: *default
+				database: app_test
+				host: <%= ENV.fetch("APP_DATABASE_HOST") { 'db' } %>
+			と修正する
+			※環境変数で"APP_DATABASE_HOST"を指定して、それが無い時にdbを参照する
+				CircleCIでは"APP_DATABASE_HOST"を、Docker環境ではdbを使用する
+			↓
+	 5) 環境変数を設定
+	 		任意のディレクトリ名(ex. src)/config/master.key (セキュリティ上不用心なのでGitHubには上げないファイル)
+			の中身をコピペ
+			↓
+			ターミナルで
+			heroku config:add RAILS_MASTER_KEY='さっきコピペしたやつ' -a アプリ名
+			を打ち込む
+			※多分フレームワークごとに設定が違う(これはrailsの例)
+
+	 6) GitHubにプッシュ
+		  ターミナルで
+			git switch -c 任意のブランチ名(ex. ci)
+			でブランチの作成と移動
+			git branch
+			で確認
+			※変更内容をgitに上げたいときはいきなりメインに上げずにブランチを作る
+			↓
+			git add .
+			を打って変更内容を一通りステージング
+			↓
+			git commit -m "任意のメッセージ(ex. CircleCIを動かせるようconfigファイルを設定)"
+			でコミット
+			↓
+			git push origin ci でプッシュ
+			↓
+			GitHubの対象のリポジトリのページでPull requestsのタブをクリック
+			↓
+			New pull requestのボタンをクリック
+			↓
+			タイトルを入力して(デフォでいいならそのまま)、Create pull requestのボタンをクリックして
+			プルリクエストを作成
+			↓
+			そのページでCircleCIで走ったテストの結果が見れるようになる
+			※detailsをクリックすると詳細が表示される
+			↓
+			テストをパスしたらMerge pull requestをクリックしてマージが可能になる
+			※テストに落ちたら押せないように設定することもできる
+			※テストをパスするとMerge pull requestの枠が緑になる
+
+	 7) テストを修正
+	 		ディレクトリ名(ex. src)/test/controllers/作成したコントローラー名(ex. users)_controller_test.rbを開いて
+      require "test_helper"
+
+      class UsersControllerTest < ActionDispatch::IntegrationTest
+         test "the truth" do
+            assert true
+         end
+      end
+      と修正する
+			↓
+			まずローカルでテストが通るか確認する
+			ターミナルで
+			docker-compose exec web bundle exec rake test
+			↓
+			パスしたら
+			git add .
+			git commit -m "好きなメッセージ(テストコード修正)"
+			git push origin 現在のブランチ(ex. ci)
+			でgitに上げる
+			↓
+			プルリクエストのページでAll checks have passedと表示されて
+			Merge pull requestのボタンが緑になったらテストがパスしたということ
+			マージができるようになる
+			↓
+			Merge pull requestをクリックした後のページで
+			Confirm mergeボタンをクリックしてマージ完了して
+			メインに反映される
+			※もう使わないならDelete branchボタンを押せばブランチを消せる
+			↓
+			ローカルにも変更を反映する。ターミナルで
+			git switch main
+			とコマンドを打ってメインブランチに切り替える
+			↓
+			git pull origin main
+			のコマンドでメインブランチの変更内容をローカルに取り込む
+-----------------------------------------------------------------------------------------------------------
+3. CDの構築
+	 ※メインブランチにマージされたらherokuに自動的にデプロイされるようにする
+	 1) configを修正
+	 2) 環境変数を設定
+	 3) Viewファイルを修正
+	 4) GitHubにプッシュ
+	 5) マージ、デプロイ
+
+	 1) configを修正
+	 		ターミナルで
+			git switch -c 好きなブランチ名(ex. cd)
+			でブランチを作成・移動
+			※不要なブランチがあるなら
+			　git branch -d ブランチ名
+			　で削除しておく
+			↓
+			.circleci/config.ymlファイルを
+				version: 2.1
+				orbs:
+					ruby: circleci/ruby@1.1.2
+					heroku: circleci/heroku@1.2.3 ← 追加
+
+				jobs:
+					build:
+						docker:
+							- image: circleci/ruby:2.7
+						working_directory: ~/任意のアプリ名(リポジトリ名と同じ)/src
+						steps:
+							- checkout:
+								path: ~/任意のアプリ名(リポジトリ名と同じ)
+							- ruby/install-deps
+
+					test:
+						docker:
+							- image: circleci/ruby:2.7
+							- image: circleci/mysql:5.5
+								environment:
+									MYSQL_ROOT_PASSWORD: password
+									MYSQL_DATABASE: app_test
+									MYSQL_USER: root
+						environment:
+							BUNDLE_JOBS: "3"
+							BUNDLE_RETRY: "3"
+							APP_DATABASE_HOST: "127.0.0.1"
+							RAILS_ENV: test
+						working_directory: ~/任意のアプリ名(リポジトリ名と同じ)/src
+						steps:
+							- checkout:
+									path: ~/任意のアプリ名(リポジトリ名と同じ)
+							- ruby/install-deps
+							- run:
+									name: Database setup
+									command: bundle exec rails db:migrate
+							- run:
+									name: test
+									command: bundle exec rake test
+					↓ ↓ ↓ 追加 ↓ ↓ ↓
+					deploy:
+						docker:
+							- image: circleci/ruby:2.7
+						steps:
+							- checkout
+							- setup_remote_docker:
+									version: 19.03.13			.... この設定でdockerコマンドを使えるようになる
+							- heroku/install			.... herokuのコマンドをインストール
+							- run:
+									name: heroku login
+									command: heroku container:login			.... herokuにログイン
+							- run:
+									name: push docker	image
+									command: heroku container:push web -a 環境変数(ex. $HEROKU_APP_NAME)			.... イメージをビルドしてプッシュ
+							- run:
+									name: release docker image
+									command: heroku container:release web -a 環境変数(ex. $HEROKU_APP_NAME)			.... イメージをリリース
+							- run:
+									name: database setup
+									command: heroku run bundle exec rake db:migrate RAILS_ENV=production -a 環境変数(ex. $HEROKU_APP_NAME)		.... データベーステーブルのマイグレーション
+					↑ ↑ ↑ 追加 ↑ ↑ ↑
+
+				workflows:
+					version: 2
+					build_test_and_deploy:
+						jobs:
+							- build
+							- test:
+									requires:
+										- build
+							↓ ↓ ↓ 追加 ↓ ↓ ↓
+							- deploy:
+									requires:
+										- test
+									filters:
+										branches:
+											only: main		.... mainブランチにマージされた時だけ
+							↑ ↑ ↑ 追加 ↑ ↑ ↑
+			と編集する
+			↓
+	 2) 環境変数を設定
+	 		※CircleCIからherokuにデプロイするために必要なCircleCIの環境変数の設定
+			CircleCIにログインして、(多分)マイページのプロジェクトを開く
+			↓
+			対象のアプリ(リポジトリ)と同じ名前のリンクをクリック
+			↓
+			Project settingsを開く
+			↓
+			Environment Variablesを開く
+			↓
+			Add Environment Variableボタンをクリック
+			↓
+			ポップアップが出てくるので
+			NameとValueを入力
+			例) 
+				Name*
+				HEROKU_APP_NAME
+				Value*
+				アプリ名
+			↓
+			入力が済んだら
+			Add Environment Variableボタンをクリック
+			↓
+			同じ手順でもう一つ設定
+			例)
+				Name*
+				HEROKU_API_KEY
+				Value*
+				※herokuのAPIキーはAccount Settingsを開いて
+					API Keyに表示されている値をコピペする
+
+	 3) Viewファイルを修正
+	 		ディレクトリ名(ex. src)/app/views/作成したコントローラー名(ex.users)/index.html.erb
+			を編集する
+			例)
+				<h1>Hello world!!!</h1>
+			↓
+			ローカルで起動して変更が反映されているか確かめる
+			ターミナルで
+			docker-compose up -d
+
+	 4) GitHubにプッシュ
+	 		ターミナルで
+			git add .
+			git commit -m 好きなメッセージ(ex. "CD用の設定を追加")
+			git push origin ブランチ名(ex. cd)
+			でGitHubに変更をプッシュ
+			↓
+			GitHubのリポジトリを開いて
+			リポジトリ名(ex. cd ) had recent pushes less than a minute ago
+			と出ていたらプッシュ成功
+			さらにCompare & pull requestボタンをクリックする
+			↓
+			問題なければデフォルトのままプルリクエスト作成
+			Create pull requestボタンをクリック
+			↓
+			CircleCIのテストをパス出来たら
+			緑になっているMerge pull requestボタンをクリック
+			その後Comfirm mergeボタンをクリック
+			メインにマージする
+			(古いブランチを削除)
+		
+	 5) マージ、デプロイ
+	 		CircleCIの(多分)マイページを開いて
+			対象のアプリ(リポジトリ)のデプロイに緑のチェックマークがついたら
+			デプロイが完了できたサイン
+			ただし、herokuに反映されるまで時間がかかる
+			※ターミナルで heroku logs -t -a アプリ名 のコマンドでherokuのログを見て状況を確認できる
+			↓
+			heroku open -a アプリ
+			のコマンドで対象のアプリのページを開く
+			↓
+			Application errorが表示されていたら
+			heroku logs -t -a アプリ名
+			でログを見ながらエラーを修正する
+			※例えば、heroku config -a アプリ名 のコマンドでコンフィグの中身が確認できる
+			↓
+			エラーの修正が終わったら、もう一度CircleCIのワークフローをやり直す
+			(CircleCIを開いて、丸い矢印っぽいアイコンをクリックする)
+			※herokuの無料プランではバインドの時間でエラーになることが多いらしい
+			↓
+			ページがちゃんと表示されて成功するまでやる
