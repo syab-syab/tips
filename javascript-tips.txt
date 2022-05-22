@@ -1,0 +1,17 @@
+・addEventListenerに定義した関数を()付きで入れると上手く動作しない
+  addEventListener("click", test())
+  ではなく
+  addEventListener("click", test)
+  と記述する
+
+・もしaddEventListenerの関数に引数を渡したい場合は
+
+  function test() {
+    console.log(this.name)
+  }
+
+  aaa.addEventListener("click", {name: "bbb", handleEvent: test})
+
+  のようにする
+
+・switch文でreturnを使用する場合、breakは記述する必要ないかも

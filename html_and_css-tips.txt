@@ -24,3 +24,17 @@
     background-color:rgb(0 68 29 / 80%);
     background-blend-mode: multiply;
   と記述すれば出来る
+
+・backgroundに小さい画像を横に連続して表示したい場合は
+  background: url() repeat-x;
+  と指定する
+
+・div要素などを横並びにするには
+  display: inline-block;
+  と指定する。
+  また、レスポンシブでスマホ表示の時に縦に戻すには
+  display: block;
+
+・cssでホバーした際のスタイルを設定した場合、
+  iphone(多分他のスマホも)とパソコンだと挙動が違うっぽいので注意
+  
